@@ -1,0 +1,9 @@
+{
+  "name": "Carturs_Combat_Text",
+  "version_number": "1.0.0",
+  "website_url": "https://github.com/jekkle/cartur-combat-text",
+  "description": "Bigger, WoW-style floating combat text on enemies - a fast crit pop on backstabs, elemental weakness and outsized hits, in colour. Everything else stays vanilla.",
+  "dependencies": [
+    "denikson-BepInExPack_Valheim-5.4.2333"
+  ]
+}
