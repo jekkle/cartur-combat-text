@@ -32,21 +32,20 @@ param(
     # Nexus game domain, as it appears in the site URL.
     [string]$Game = "valheim",
 
-    # The mod id from the site URL: nexusmods.com/valheim/mods/3681
-    [string]$ModId = "",
+    # The mod id from the site URL: nexusmods.com/valheim/mods/4088
+    [string]$ModId = "4088",
 
-    # Which of the mod's files this is a new version of. Matched on name.
-    [string]$FileName = "Cartur's Combat Text"
+    # Which of the mod's files this is a new version of. Matched on name - the
+    # display name carries the version, so this has to be bumped on every release.
+    [string]$FileName = "Cartur's Combat Text 1.0.0"
 )
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 $api = "https://api.nexusmods.com/v3"
 
-# This mod has no mod page yet. There is no API to create one - nexus-publishing memory
-# says the first upload of a mod is always manual on the site. Do that first, then put the
-# id from its URL (nexusmods.com/valheim/mods/<id>) here as the -ModId default; only after
-# that does this script have anything to attach a *new version* to.
+# Mod page is nexusmods.com/valheim/mods/4088, created manually - the first upload of a
+# mod has no API, so this script only ever attaches a *new version* to an existing page.
 if (-not $ModId) {
     throw "No -ModId given and none defaulted in this script. Create the mod page manually on nexusmods.com first (first upload can't go through the API), then rerun with -ModId <id from its URL>."
 }

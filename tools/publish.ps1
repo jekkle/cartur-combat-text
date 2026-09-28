@@ -69,4 +69,4 @@ if (-not $env:TCLI_AUTH_TOKEN) {
 if ($LASTEXITCODE -ne 0) { throw "tcli publish failed with exit code $LASTEXITCODE" }
 
 Write-Host "published $($manifest.name) $version"
-Write-Host "First release: the Nexus side still needs a manual mod page - see tools\publish-nexus.ps1."
+Write-Host "Now run tools\publish-nexus.ps1 for the Nexus side."
