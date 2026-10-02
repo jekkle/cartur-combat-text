@@ -309,7 +309,9 @@ namespace CarturCombatText
                     if (fa != null && fa.name == want) { _font = fa; break; }
 
             if (_font == null)
-                Log?.LogWarning($"Font '{want}' not found - not a loaded font name and no file at {path}. Using the game's font.");
+                Log?.LogWarning(System.IO.File.Exists(path)
+                    ? $"Font file {path} could not be loaded. Using the game's font."
+                    : $"Font '{want}' not found - not a loaded font name and no file at {path}. Using the game's font.");
             else
                 Log?.LogInfo($"Combat text font: {_font.name}");
             return _font;
