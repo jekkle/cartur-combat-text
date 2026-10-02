@@ -37,7 +37,11 @@ param(
 
     # Which of the mod's files this is a new version of. Matched on name - the
     # display name carries the version, so this has to be bumped on every release.
-    [string]$FileName = "Cartur's Combat Text 1.0.0"
+    [string]$FileName = "Cartur's Combat Text 1.0.0",
+
+    # The file slot carries the version in its name, so FileName is the previous release's
+    # name and this is the new one.
+    [string]$NewName
 )
 
 $ErrorActionPreference = "Stop"
@@ -164,7 +168,7 @@ Write-Host "state    : available"
 # afterwards; /mod-file-versions/{id} is GET only. It is set here or by hand on the site.
 $created = Invoke-RestMethod -Method Post -Uri "$api/mod-files/$($target.id)/versions" -Headers $headers -Body (@{
     upload_id                    = $uploadId
-    name                         = $target.name
+    name                         = $(if ($NewName) { $NewName } else { $target.name })
     version                      = $version
     file_category                = "main"
     update_mod_version           = $true
@@ -172,7 +176,7 @@ $created = Invoke-RestMethod -Method Post -Uri "$api/mod-files/$($target.id)/ver
     primary_mod_manager_download = $true
 } | ConvertTo-Json)
 
-Write-Host "published: $($target.name) $version"
+Write-Host "published: $(if ($NewName) { $NewName } else { $target.name }) $version"
 
 # --- 5. the changelog ------------------------------------------------------------
 # Additive on Nexus's side, so this runs last and only once per version.

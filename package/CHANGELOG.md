@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.0
+
+- **Choose your own font.** `General / Font` takes either the name of a font the game already has
+  (the list is written to the BepInEx log when you enter a world, e.g. `Valheim-Norse`) or the file
+  name of a .ttf/.otf you put in a `fonts` folder next to this mod's DLL. Empty keeps the game's.
+
 ## 1.0.0
 
 First release.
