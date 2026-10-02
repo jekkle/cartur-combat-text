@@ -97,9 +97,15 @@ namespace CarturCombatText
 
         private static BepInEx.Logging.ManualLogSource Log;
 
+        private static BepInEx.Configuration.ConfigEntry<string> FontName;
+
         private void Awake()
         {
             Log = Logger;
+            FontName = Config.Bind("General", "Font", "",
+                "Font for the numbers on enemies. Empty uses the game's own. Either the name of a font the game has loaded " +
+                "(the list is written to the BepInEx log when you enter a world, e.g. Valheim-Norse), or the file name of a " +
+                ".ttf/.otf you put in a 'fonts' folder next to this mod's DLL (e.g. Diablo.ttf). Takes effect on the next hit.");
             try
             {
                 Harmony.CreateAndPatchAll(typeof(Plugin).Assembly, PluginGuid);
@@ -275,6 +281,40 @@ namespace CarturCombatText
             }
         }
 
+        // Asked for (Gnralz88): a font of your own. Each number is a fresh Instantiate of
+        // m_worldTextBase (read from AddInworldText), so setting it per text touches nothing else.
+        // A file goes through TMP_FontAsset.CreateFontAsset(path, ...), the game's TMP's own
+        // public loader (FontEngine.LoadFontFace, dynamic atlas - glyphs drawn as first used).
+        // Resolved once per setting value, and a name that matches nothing is warned about once.
+        private static TMP_FontAsset _font;
+        private static string _fontFor;
+
+        private static TMP_FontAsset CustomFont()
+        {
+            string want = FontName?.Value?.Trim() ?? "";
+            if (want == _fontFor)
+                return _font;
+            _fontFor = want;
+            _font = null;
+            if (want.Length == 0)
+                return null;
+
+            string path = System.IO.Path.Combine(
+                System.IO.Path.GetDirectoryName(typeof(Plugin).Assembly.Location) ?? "", "fonts", want);
+            if (System.IO.File.Exists(path))
+                _font = TMP_FontAsset.CreateFontAsset(path, 0, 90, 9,
+                    UnityEngine.TextCore.LowLevel.GlyphRenderMode.SDFAA, 1024, 1024);
+            else
+                foreach (var fa in Resources.FindObjectsOfTypeAll<TMP_FontAsset>())
+                    if (fa != null && fa.name == want) { _font = fa; break; }
+
+            if (_font == null)
+                Log?.LogWarning($"Font '{want}' not found - not a loaded font name and no file at {path}. Using the game's font.");
+            else
+                Log?.LogInfo($"Combat text font: {_font.name}");
+            return _font;
+        }
+
         private static bool WasEnemyHit(Vector3 pos, out Character victim, out bool backstab)
         {
             victim = null;
@@ -323,6 +363,10 @@ namespace CarturCombatText
                 var text = TextFieldField.GetValue(list[list.Count - 1]) as TMP_Text;
                 if (text == null || Live.ContainsKey(text))
                     return;
+
+                TMP_FontAsset font = CustomFont();
+                if (font != null)
+                    text.font = font;
 
                 // Weak is the game's own elemental-weakness callout. Bonus is left in even
                 // though nothing currently emits it for a creature hit (see BackstabTimeField
