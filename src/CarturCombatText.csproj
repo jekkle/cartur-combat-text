@@ -3,7 +3,6 @@
   <PropertyGroup>
     <TargetFramework>net472</TargetFramework>
     <AssemblyName>CarturCombatText</AssemblyName>
-    <Version>1.0.0</Version>
     <LangVersion>latest</LangVersion>
     <RestoreAdditionalProjectSources>https://nuget.bepinex.dev/v3/index.json</RestoreAdditionalProjectSources>
     <!-- Managed DLLs come from the raw Steam install -->

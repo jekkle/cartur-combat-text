@@ -105,7 +105,8 @@ namespace CarturCombatText
             FontName = Config.Bind("General", "Font", "",
                 "Font for the numbers on enemies. Empty uses the game's own. Either the name of a font the game has loaded " +
                 "(the list is written to the BepInEx log when you enter a world, e.g. Valheim-Norse), or the file name of a " +
-                ".ttf/.otf you put in a 'fonts' folder next to this mod's DLL (e.g. Diablo.ttf). Takes effect on the next hit.");
+                ".ttf/.otf you put in a 'fonts' folder next to this mod's DLL (e.g. Diablo.ttf). Takes effect on the next hit. " +
+                "A custom font gets TMP's default material, so it does not have vanilla's outline.");
             try
             {
                 Harmony.CreateAndPatchAll(typeof(Plugin).Assembly, PluginGuid);
@@ -124,19 +125,29 @@ namespace CarturCombatText
         // per frame is a frame-rate bug.
         private static readonly Type WorldTextType = AccessTools.Inner(typeof(DamageText), "WorldTextInstance");
         private static readonly FieldInfo TextsField = AccessTools.Field(typeof(DamageText), "m_worldTexts");
-        private static readonly FieldInfo TextFieldField = WorldTextType == null ? null : AccessTools.Field(WorldTextType, "m_textField");
-        private static readonly FieldInfo TimerField = WorldTextType == null ? null : AccessTools.Field(WorldTextType, "m_timer");
-        private static readonly FieldInfo WorldPosField = WorldTextType == null ? null : AccessTools.Field(WorldTextType, "m_worldPos");
-        private static readonly FieldInfo DurationField = WorldTextType == null ? null : AccessTools.Field(WorldTextType, "m_duration");
+        //
+        // FieldRefAccess<object, T> because the instance type cannot be named. It compiles each
+        // field to a delegate once, so the per-text reads in the per-frame patches below do not
+        // box a float or a Vector3 the way FieldInfo.GetValue/SetValue did.
+        private static AccessTools.FieldRef<object, F> WorldTextRef<F>(string name)
+        {
+            var field = WorldTextType == null ? null : AccessTools.Field(WorldTextType, name);
+            return field == null ? null : AccessTools.FieldRefAccess<object, F>(field);
+        }
+
+        private static readonly AccessTools.FieldRef<object, TMP_Text> TextFieldRef = WorldTextRef<TMP_Text>("m_textField");
+        private static readonly AccessTools.FieldRef<object, float> TimerRef = WorldTextRef<float>("m_timer");
+        private static readonly AccessTools.FieldRef<object, Vector3> WorldPosRef = WorldTextRef<Vector3>("m_worldPos");
+        private static readonly AccessTools.FieldRef<object, float> DurationRef = WorldTextRef<float>("m_duration");
 
         // Character.Damage sets this the instant its own backstab check passes (private field,
         // "m_backstabTime = -99999f" by default) - read from the decompiled DLL, not guessed.
         // Character.ApplyDamage.TextType is never Bonus for a creature hit: HitData.DamageModifier
         // has no Bonus case, so ShowText(DamageModifier,...) can only emit Normal/Resistant/Weak/
         // Immune, and no call site in Character/Attack/Humanoid/Player passes TextType.Bonus
-        // directly either. A backstab just multiplies hit.m_damage and shows as an oversized
-        // Normal number, so without this field it only became "big" by luck against the running
-        // average. Damage() sets m_backstabTime = Time.time synchronously, a few lines before
+        // directly either. A backstab (or a hit on a staggering enemy, which Damage also doubles)
+        // just multiplies hit.m_damage and shows as an oversized Normal number, so without
+        // this field it only became "big" by luck against the running average. Damage() sets m_backstabTime = Time.time synchronously, a few lines before
         // calling ApplyDamage in the same call stack, so an exact match in MarkEnemyHit's Prefix
         // means this hit was a backstab.
         private static readonly FieldInfo BackstabTimeField = AccessTools.Field(typeof(Character), "m_backstabTime");
@@ -259,7 +270,20 @@ namespace CarturCombatText
                 bool backstab = BackstabTimeField != null
                                  && (float)BackstabTimeField.GetValue(__instance) == Time.time;
 
-                EnemyHits.Add(new EnemyHit { Time = Time.time, Point = hit.m_point, Victim = __instance, Backstab = backstab });
+                // Nothing consumes an entry when AddInworldText never runs (HUD hidden with F3,
+                // dedicated server, no camera - RPC_DamageText returns early), so the list grew
+                // without bound. It is oldest first, so drop expired entries off the front.
+                while (EnemyHits.Count > 0 && Time.time - EnemyHits[0].Time > PointLifetime)
+                    EnemyHits.RemoveAt(0);
+
+                // Character.Damage doubles the hit and plays m_critHitEffects when the victim
+                // IsStaggering() (read from the decompiled DLL), all before it calls ApplyDamage,
+                // so the state is still readable here. Burning/poison ticks call ApplyDamage on
+                // their own with other hit types, hence the type test.
+                bool stagger = (hit.m_hitType == HitData.HitType.PlayerHit || hit.m_hitType == HitData.HitType.EnemyHit)
+                               && __instance.IsStaggering();
+
+                EnemyHits.Add(new EnemyHit { Time = Time.time, Point = hit.m_point, Victim = __instance, Backstab = backstab || stagger });
 
                 var dt = DamageText.instance;
                 if (dt != null && dt.m_maxTextDistance < EnemyTextDistance)
@@ -348,7 +372,32 @@ namespace CarturCombatText
         [HarmonyPatch(typeof(DamageText), "AddInworldText")]
         private static class TagNewText
         {
-            private static void Postfix(DamageText __instance, DamageText.TextType type, Vector3 pos)
+            private static bool _warned;
+
+            // Count before, so the postfix can tell a text this call added from an early return.
+            private static void Prefix(DamageText __instance, out int __state)
+            {
+                __state = (TextsField?.GetValue(__instance) as System.Collections.IList)?.Count ?? -1;
+            }
+
+            // A throw here would propagate out of Character.ApplyDamage (the RPC runs inline
+            // inside it) and cancel the hit's damage. The numbers are cosmetic, so swallow it.
+            private static void Postfix(DamageText __instance, DamageText.TextType type, Vector3 pos, int __state)
+            {
+                try
+                {
+                    Tag(__instance, type, pos, __state);
+                }
+                catch (Exception e)
+                {
+                    if (_warned)
+                        return;
+                    _warned = true;
+                    Log?.LogWarning($"Combat text tagging failed, further failures are not logged: {e}");
+                }
+            }
+
+            private static void Tag(DamageText __instance, DamageText.TextType type, Vector3 pos, int countBefore)
             {
                 // Everything that is not a creature - trees, ore, buildings, crafting, pickups,
                 // healing - is left exactly as vanilla drew it.
@@ -356,13 +405,14 @@ namespace CarturCombatText
                     return;
 
                 var list = TextsField?.GetValue(__instance) as System.Collections.IList;
-                if (list == null || list.Count == 0 || TextFieldField == null)
+                if (list == null || list.Count <= countBefore || TextFieldRef == null)
                     return;
 
                 // AddInworldText appends the new instance to m_worldTexts and never reorders,
                 // so the one it just made is the last. It can also early-return without adding
-                // anything when the list is full of "0" texts, hence the ContainsKey guard.
-                var text = TextFieldField.GetValue(list[list.Count - 1]) as TMP_Text;
+                // anything when the list is full of "0" texts, hence the count guard above (the
+                // last entry would then be an older, untracked text) and the ContainsKey guard.
+                var text = TextFieldRef(list[list.Count - 1]);
                 if (text == null || Live.ContainsKey(text))
                     return;
 
@@ -387,8 +437,8 @@ namespace CarturCombatText
                 // AddInworldText has already written m_worldPos = pos + Random.insideUnitSphere
                 // * 0.5f, so subtracting the position it was handed recovers that spread.
                 Vector3 jitter = Vector3.zero;
-                if (WorldPosField != null)
-                    jitter = (Vector3)WorldPosField.GetValue(list[list.Count - 1]) - pos;
+                if (WorldPosRef != null)
+                    jitter = WorldPosRef(list[list.Count - 1]) - pos;
 
                 // Recolour on top of vanilla's own type colour (AddInworldText already set it,
                 // above). Weak keeps a colour of its own - red - so an elemental hit still
@@ -418,9 +468,8 @@ namespace CarturCombatText
 
                 // Cut a crit's life short so it clears the screen quickly. This also sharpens
                 // vanilla's fade, which is 1 - (m_timer / m_duration)^3.
-                if (crit && DurationField != null)
-                    DurationField.SetValue(list[list.Count - 1],
-                        (float)DurationField.GetValue(list[list.Count - 1]) * CritDurationFactor);
+                if (crit && DurationRef != null)
+                    DurationRef(list[list.Count - 1]) *= CritDurationFactor;
 
                 Live[text] = new Tracked { BaseSize = text.fontSize, Crit = crit, Victim = victim, Jitter = jitter };
             }
@@ -460,21 +509,21 @@ namespace CarturCombatText
             private static void Prefix(DamageText __instance)
             {
                 var list = TextsField?.GetValue(__instance) as System.Collections.IList;
-                if (list == null || TextFieldField == null || TimerField == null || WorldPosField == null)
+                if (list == null || TextFieldRef == null || TimerRef == null || WorldPosRef == null)
                     return;
 
                 for (int i = 0; i < list.Count; i++)
                 {
                     var item = list[i];
-                    if (!(TextFieldField.GetValue(item) is TMP_Text text) || text == null)
+                    TMP_Text text = TextFieldRef(item);
+                    if (text == null)
                         continue;
                     if (!Live.TryGetValue(text, out Tracked t) || t.Victim == null)
                         continue;
 
-                    float age = (float)TimerField.GetValue(item);
+                    float age = TimerRef(item);
                     float rise = t.Crit ? CritRiseSpeed : RiseSpeed;
-                    WorldPosField.SetValue(item,
-                        t.Victim.GetTopPoint() + t.Jitter + Vector3.up * (age * rise));
+                    WorldPosRef(item) = t.Victim.GetTopPoint() + t.Jitter + Vector3.up * (age * rise);
                 }
             }
         }
@@ -485,7 +534,7 @@ namespace CarturCombatText
             private static void Postfix(DamageText __instance)
             {
                 var list = TextsField?.GetValue(__instance) as System.Collections.IList;
-                if (list == null || TextFieldField == null || TimerField == null)
+                if (list == null || TextFieldRef == null || TimerRef == null)
                     return;
 
                 // UpdateWorldTexts destroys at most one expired text per frame, so entries
@@ -500,13 +549,14 @@ namespace CarturCombatText
                 for (int i = 0; i < list.Count; i++)
                 {
                     var item = list[i];
-                    if (!(TextFieldField.GetValue(item) is TMP_Text text) || text == null)
+                    TMP_Text text = TextFieldRef(item);
+                    if (text == null)
                         continue;
                     if (!Live.TryGetValue(text, out Tracked t))
                         continue;
 
                     float scale = t.Crit
-                        ? CritSizeScale * CritCurve((float)TimerField.GetValue(item))
+                        ? CritSizeScale * CritCurve(TimerRef(item))
                         : SizeScale;
 
                     text.fontSize = t.BaseSize * scale;
