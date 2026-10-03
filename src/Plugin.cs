@@ -52,7 +52,7 @@ namespace CarturCombatText
     {
         public const string PluginGuid = "com.jekkle.valheim.carturcombattext";
         public const string PluginName = "Cartur's Combat Text";
-        public const string PluginVersion = "1.1.0";
+        public const string PluginVersion = "1.1.1";
 
         // Every number gets this much bigger than vanilla picked for it. Multiplying vanilla's
         // own choice rather than setting an absolute size keeps its distance falloff intact -

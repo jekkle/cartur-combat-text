@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.1
+
+- An error while drawing a damage number can no longer cancel the hit's damage.
+- The list of recent hits no longer grows without limit where the text is never shown (hidden HUD, dedicated server).
+- Stagger hits count as critical.
+- Less garbage per frame, and a guard against the last entry being shown with the wrong label.
+
 ## 1.1.0
 
 - **Choose your own font.** `General / Font` takes either the name of a font the game already has
