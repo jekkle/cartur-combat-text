@@ -9,44 +9,28 @@ using UnityEngine;
 
 namespace CarturCombatText
 {
-    // What this mod does, and why it is shaped this way:
+    // Rides vanilla's floating combat text instead of rebuilding it. DamageText.AddInworldText
+    // picks the font size from camera distance and the colour from TextType; UpdateWorldTexts
+    // raises m_worldPos.y by dt and fades alpha as 1 - t^3. This remembers the size vanilla chose
+    // per text and re-applies a scaled one each frame. No patch returns false, so if a game update
+    // moves any of this the numbers just go back to vanilla.
     //
-    // Valheim already has floating combat text. DamageText.ShowText packs the hit into a
-    // ZPackage, routes "RPC_DamageText" to every peer, and each client turns it back into a
-    // WorldTextInstance in DamageText.AddInworldText - which picks the font size from the
-    // camera distance and the colour from the TextType. DamageText.UpdateWorldTexts then
-    // raises m_worldPos.y by dt each frame and fades alpha as 1 - t^3.
+    // Crit pop starts from WoW's Blizzard_CombatText.lua: COMBAT_TEXT_CRIT_MINHEIGHT 30 ->
+    // CRIT_MAXHEIGHT 60 (2x) in CRIT_SCALE_TIME 0.05s, back down by CRIT_SHRINKTIME 0.2s.
     //
-    // So there is nothing to rebuild, and nothing to do about the font: the text object is
-    // instantiated from DamageText.m_worldTextBase, which already carries the game's own TMP
-    // font. All this mod does is ride on top: remember the font size vanilla chose for each
-    // text, then re-apply a scaled version of it every frame. No patch here returns false or
-    // rewrites a body, so if any of the above changes in a game update the worst case is that
-    // the numbers go back to looking vanilla - not a broken game.
-    //
-    // The animation numbers are World of Warcraft's, from Blizzard_CombatText.lua:
-    // COMBAT_TEXT_CRIT_MINHEIGHT 30 -> CRIT_MAXHEIGHT 60 (so a crit is 2x), reached in
-    // COMBAT_TEXT_CRIT_SCALE_TIME 0.05s and back down by COMBAT_TEXT_CRIT_SHRINKTIME 0.2s.
-    //
-    // Only enemies get this treatment. That takes work, because by the time AddInworldText
-    // runs the text has been through a ZPackage and all that survives is a TextType, a world
-    // position and a string - nothing says what was hit. Trees, ore, buildings, crafting
-    // results and pickups all arrive down the same pipe.
-    //
-    // Character.ApplyDamage is the only call site that means "a creature was hit", and it
-    // reads, from its IL:
+    // Enemies only. By the time AddInworldText runs the hit has been through a ZPackage and only
+    // a TextType, a position and a string survive; trees, ore, buildings, crafting and pickups
+    // come down the same pipe. Character.ApplyDamage is the one call site that means "a creature
+    // was hit", and its IL reads:
     //
     //     DamageText.instance.ShowText(mod, hit.m_point, damage, IsPlayer() ? true : IsTamed());
     //
-    // so the game itself is already splitting creatures into player-or-tame and everything
-    // else - exactly the line we want. The position it passes is hit.m_point, which crosses
-    // the wire as three raw floats in ZPackage.Write(Vector3) and comes back bit-exact from
-    // ReadVector3. So: record the point when an enemy is damaged, and match it on the way
-    // out. No proximity search, no guessing which object a number belongs to.
+    // hit.m_point crosses the wire as three raw floats and comes back bit-exact from
+    // ReadVector3, so record it when an enemy is damaged and match it on the way out. No proximity
+    // search, no guessing which object a number belongs to.
     //
-    // Known limit: ApplyDamage runs on the machine that owns the victim's ZDO. On a hit whose
-    // creature another client owns, nothing is recorded here and that number simply stays
-    // vanilla-sized. Not verified in a real multiplayer session yet.
+    // Known limit: ApplyDamage runs on whoever owns the victim's ZDO. A hit on a creature another
+    // client owns is not recorded here and stays vanilla-sized. Not tested in real multiplayer.
     [BepInPlugin(PluginGuid, PluginName, PluginVersion)]
     public class Plugin : BaseUnityPlugin
     {
@@ -54,44 +38,30 @@ namespace CarturCombatText
         public const string PluginName = "Cartur's Combat Text";
         public const string PluginVersion = "1.1.1";
 
-        // Every number gets this much bigger than vanilla picked for it. Multiplying vanilla's
-        // own choice rather than setting an absolute size keeps its distance falloff intact -
-        // far-away hits still read smaller than the one in your face.
-        //
-        // Ordinary hits were dropped a third from the original 3x - at 3x they crowded the
-        // screen on fast weapons. Crits keep the old base so the pop still stands out against
-        // the quieter normals. Both are taste, not a reading.
+        // Multiplies vanilla's own size so its distance falloff survives. Taste: normals at 3x
+        // crowded the screen on fast weapons, crits keep 3x so they still stand out.
         public const float SizeScale = 2f;
         public const float CritSizeScale = 3f;
 
-        // WoW's crit pop is 2x over 0.05s, settling by 0.2s (COMBAT_TEXT_CRIT_MINHEIGHT 30 ->
-        // MAXHEIGHT 60, CRIT_SCALE_TIME, CRIT_SHRINKTIME). These are deliberately louder and
-        // faster than that: snap to a bigger peak, undershoot, then settle. The undershoot is
-        // what reads as a "pop" rather than a swell.
-        //
-        // Every number in this block is taste, not something read out of a game - they are the
-        // knobs to turn when the feel is wrong.
+        // Louder and faster than WoW's pop: snap to a bigger peak, undershoot, settle. The
+        // undershoot is what reads as a pop rather than a swell. All taste.
         private const float CritPeakScale = 3.5f;
         private const float CritScaleTime = 0.04f;    // 0 -> peak
         private const float CritShrinkTime = 0.16f;   // peak -> undershoot
         private const float CritSettleScale = 0.9f;   // the undershoot
         private const float CritSettleTime = 0.24f;   // undershoot -> normal
 
-        // Crits leave faster than ordinary hits: they climb quicker and their whole life is cut
-        // short, which also speeds up vanilla's 1 - t^3 fade because that is measured against
-        // m_duration.
+        // Crits climb faster and die sooner. A shorter m_duration also sharpens vanilla's
+        // 1 - t^3 fade.
         private const float CritRiseSpeed = 2.5f;
         private const float CritDurationFactor = 0.6f;
 
-        // How far a number on an enemy may be from the camera, in metres. Raised because a bow
-        // shot at range showed nothing at all. Taste, not a reading: vanilla's own limit is a
-        // serialized prefab value, logged on load so the two can be compared.
+        // Metres. Vanilla's limit hid bow hits at range. Taste; vanilla's own value is a prefab
+        // field, logged on load.
         private const float EnemyTextDistance = 80f;
 
-        // A hit counts as "big" once it is this many times the running average of recent
-        // ordinary hits. Relative rather than absolute because a flint spear and a blackmetal
-        // sword are two orders of magnitude apart, and a fixed threshold would mean every hit
-        // crits in the plains and none in the meadows.
+        // "Big" = this many times the running average of recent normal hits. Relative because a
+        // flint spear and a blackmetal sword are two orders of magnitude apart.
         private const float BigHitFactor = 2f;
         private const int BigHitSamples = 20;
 
@@ -114,21 +84,18 @@ namespace CarturCombatText
             }
             catch (Exception e)
             {
-                // A throw here takes the whole chainloader down with it, and every other mod
-                // in the profile with it. Floating numbers are not worth that.
+                // A throw here takes down the chainloader and every other mod with it.
                 Logger.LogWarning($"{PluginName} failed to patch, leaving combat text vanilla: {e}");
             }
         }
 
-        // DamageText.WorldTextInstance is a private nested type, so its fields are reached by
-        // reflection. Cached once - UpdateWorldTexts runs every frame and a GetField per text
-        // per frame is a frame-rate bug.
+        // WorldTextInstance is a private nested type, so reflection, cached once:
+        // UpdateWorldTexts runs every frame.
         private static readonly Type WorldTextType = AccessTools.Inner(typeof(DamageText), "WorldTextInstance");
         private static readonly FieldInfo TextsField = AccessTools.Field(typeof(DamageText), "m_worldTexts");
-        //
-        // FieldRefAccess<object, T> because the instance type cannot be named. It compiles each
-        // field to a delegate once, so the per-text reads in the per-frame patches below do not
-        // box a float or a Vector3 the way FieldInfo.GetValue/SetValue did.
+
+        // FieldRefAccess<object, T> because the type can't be named. Compiled once, so the
+        // per-frame reads don't box a float or a Vector3.
         private static AccessTools.FieldRef<object, F> WorldTextRef<F>(string name)
         {
             var field = WorldTextType == null ? null : AccessTools.Field(WorldTextType, name);
@@ -140,31 +107,24 @@ namespace CarturCombatText
         private static readonly AccessTools.FieldRef<object, Vector3> WorldPosRef = WorldTextRef<Vector3>("m_worldPos");
         private static readonly AccessTools.FieldRef<object, float> DurationRef = WorldTextRef<float>("m_duration");
 
-        // Character.Damage sets this the instant its own backstab check passes (private field,
-        // "m_backstabTime = -99999f" by default) - read from the decompiled DLL, not guessed.
-        // Character.ApplyDamage.TextType is never Bonus for a creature hit: HitData.DamageModifier
-        // has no Bonus case, so ShowText(DamageModifier,...) can only emit Normal/Resistant/Weak/
-        // Immune, and no call site in Character/Attack/Humanoid/Player passes TextType.Bonus
-        // directly either. A backstab (or a hit on a staggering enemy, which Damage also doubles)
-        // just multiplies hit.m_damage and shows as an oversized Normal number, so without
-        // this field it only became "big" by luck against the running average. Damage() sets m_backstabTime = Time.time synchronously, a few lines before
-        // calling ApplyDamage in the same call stack, so an exact match in MarkEnemyHit's Prefix
-        // means this hit was a backstab.
+        // Character.Damage sets m_backstabTime = Time.time when its backstab check passes (default
+        // -99999f, read from the DLL), a few lines before it calls ApplyDamage in the same stack,
+        // so an exact match in MarkEnemyHit's Prefix means a backstab. Needed because a creature
+        // hit is never TextType.Bonus: DamageModifier has no Bonus case and no call site passes
+        // it, so a backstab only ever showed as an oversized Normal.
         private static readonly FieldInfo BackstabTimeField = AccessTools.Field(typeof(Character), "m_backstabTime");
 
         private sealed class Tracked
         {
             public float BaseSize;
             public bool Crit;
-            // The creature this number belongs to, so the text can ride along with it.
             public Character Victim;
-            // Vanilla's own Random.insideUnitSphere * 0.5f spread, kept so repeated hits on one
-            // creature do not all stack on the exact same point.
+            // Vanilla's insideUnitSphere * 0.5f spread, so repeat hits don't stack on one point.
             public Vector3 Jitter;
         }
 
-        // Keyed on the TMP_Text because that is the one object both patches can see, and it
-        // dies with its text. Vanilla caps itself at ~200 live texts, so this stays small.
+        // Keyed on TMP_Text: the one object both patches can see, and it dies with its text.
+        // Vanilla caps itself at ~200 live texts.
         private static readonly Dictionary<TMP_Text, Tracked> Live = new Dictionary<TMP_Text, Tracked>();
         private static readonly List<TMP_Text> Dead = new List<TMP_Text>();
 
@@ -173,8 +133,7 @@ namespace CarturCombatText
 
         private static bool IsBigHit(float value)
         {
-            // Needs a few samples before the average means anything, or the first hit of the
-            // session always "crits".
+            // Otherwise the first hit of a session always crits.
             bool big = RecentHits.Count >= 5 && _recentSum > 0f
                        && value >= (_recentSum / RecentHits.Count) * BigHitFactor;
 
@@ -186,9 +145,8 @@ namespace CarturCombatText
             return big;
         }
 
-        // Hit points of enemies damaged recently, oldest first. Locally the matching text is
-        // consumed in the same call stack (see MarkEnemyHit); the lifetime is only here so a
-        // hit whose text never arrives cannot sit in the list for the rest of the session.
+        // Oldest first. Locally the text is consumed in the same call stack; the lifetime only
+        // stops a hit whose text never arrives from sitting here all session.
         private const float PointLifetime = 2f;
         private static readonly List<EnemyHit> EnemyHits = new List<EnemyHit>();
 
@@ -200,19 +158,8 @@ namespace CarturCombatText
             public bool Backstab;
         }
 
-        // A Prefix, and it has to be. DamageText.ShowText calls
-        // ZRoutedRpc.InvokeRoutedRPC(0L, "RPC_DamageText", pkg), and InvokeRoutedRPC reads:
-        //
-        //     if (targetPeerID == m_id || targetPeerID == 0L) HandleRoutedRPC(rpcData);
-        //
-        // Target 0 means everybody, so the local delivery is synchronous - RPC_DamageText and
-        // AddInworldText both run inline, inside ShowText, inside ApplyDamage. A Postfix here
-        // records the hit point after AddInworldText has already asked whether it was an enemy
-        // and been told no, so every single number silently stayed vanilla. Do not "tidy" this
-        // back into a Postfix.
-        // DamageText's tuning lives on the prefab, not in the DLL - Awake sets no defaults, so
-        // the only way to know what vanilla actually uses is to read the live component. Logged
-        // once so the taste numbers above can be judged against the real ones.
+        // DamageText's tuning lives on the prefab, not the DLL. Logged once to compare the taste
+        // numbers against.
         [HarmonyPatch(typeof(DamageText), "Awake")]
         private static class LogVanillaValues
         {
@@ -226,9 +173,7 @@ namespace CarturCombatText
             }
         }
 
-        // Which font assets exist is not readable from the DLL and not guessable - past guesses
-        // about Valheim's TMP fonts have been wrong. Dumped once so a real face swap for crits
-        // can be chosen against a list instead of a hunch.
+        // Loaded TMP fonts can't be read from the DLL and past guesses were wrong, so dump them.
         [HarmonyPatch(typeof(DamageText), "Awake")]
         private static class LogFonts
         {
@@ -246,40 +191,43 @@ namespace CarturCombatText
             }
         }
 
+        // Must be a Prefix. ShowText calls ZRoutedRpc.InvokeRoutedRPC(0L, "RPC_DamageText", pkg),
+        // which reads:
+        //
+        //     if (targetPeerID == m_id || targetPeerID == 0L) HandleRoutedRPC(rpcData);
+        //
+        // so local delivery is synchronous and AddInworldText runs inside ApplyDamage. A Postfix
+        // records the point after the text already asked "enemy?" and got no, and every number
+        // stays vanilla. Do not tidy this into a Postfix.
         [HarmonyPatch(typeof(Character), nameof(Character.ApplyDamage))]
         private static class MarkEnemyHit
         {
-            // RPC_DamageText drops any text further from the camera than
-            // DamageText.m_maxTextDistance, and a bow shot at range falls outside it. Raising
-            // that field permanently would also pull in distant tree-chopping, mining and other
-            // players' numbers, which is not what was asked for. Because the RPC is delivered
-            // synchronously inside this very call (see the comment above), the limit can instead
-            // be lifted for the length of one enemy hit and put straight back.
+            // RPC_DamageText drops text beyond m_maxTextDistance, which hid bow hits at range.
+            // Raising it for good would pull in distant chopping, mining and other players'
+            // numbers, so it is lifted for one enemy hit and put back (the RPC runs inside this
+            // call).
             private static float _saved = -1f;
 
             private static void Prefix(Character __instance, HitData hit, bool showDamageText)
             {
-                // Mirror the game's own test one line below this call: it treats a player or a
-                // tame as "player" and everything else as a creature to show a number over.
+                // Same split as the game's own test one line below this call.
                 if (!showDamageText || hit == null || __instance == null
                     || __instance.IsPlayer() || __instance.IsTamed())
                     return;
 
-                // See BackstabTimeField above: an exact match means Damage() just set this on
-                // the same frame, in the same call stack, for this exact victim.
+                // See BackstabTimeField.
                 bool backstab = BackstabTimeField != null
                                  && (float)BackstabTimeField.GetValue(__instance) == Time.time;
 
-                // Nothing consumes an entry when AddInworldText never runs (HUD hidden with F3,
-                // dedicated server, no camera - RPC_DamageText returns early), so the list grew
-                // without bound. It is oldest first, so drop expired entries off the front.
+                // Nothing consumes entries when AddInworldText never runs (F3 HUD off, dedicated
+                // server, no camera), so drop expired ones off the front.
                 while (EnemyHits.Count > 0 && Time.time - EnemyHits[0].Time > PointLifetime)
                     EnemyHits.RemoveAt(0);
 
-                // Character.Damage doubles the hit and plays m_critHitEffects when the victim
-                // IsStaggering() (read from the decompiled DLL), all before it calls ApplyDamage,
-                // so the state is still readable here. Burning/poison ticks call ApplyDamage on
-                // their own with other hit types, hence the type test.
+                // A stagger hit is a crit by the game's own reckoning: Damage doubles it and plays
+                // m_critHitEffects when the victim IsStaggering() (read from the DLL), before
+                // calling ApplyDamage, so the state is still readable here. Burn/poison ticks call
+                // ApplyDamage with other hit types, hence the type test.
                 bool stagger = (hit.m_hitType == HitData.HitType.PlayerHit || hit.m_hitType == HitData.HitType.EnemyHit)
                                && __instance.IsStaggering();
 
@@ -305,11 +253,9 @@ namespace CarturCombatText
             }
         }
 
-        // Asked for (Gnralz88): a font of your own. Each number is a fresh Instantiate of
-        // m_worldTextBase (read from AddInworldText), so setting it per text touches nothing else.
-        // A file goes through TMP_FontAsset.CreateFontAsset(path, ...), the game's TMP's own
-        // public loader (FontEngine.LoadFontFace, dynamic atlas - glyphs drawn as first used).
-        // Resolved once per setting value, and a name that matches nothing is warned about once.
+        // Requested by Gnralz88. Each number is a fresh Instantiate of m_worldTextBase, so setting
+        // the font per text touches nothing else. Files load through TMP_FontAsset.CreateFontAsset
+        // (dynamic atlas). Resolved once per setting value; a miss is warned about once.
         private static TMP_FontAsset _font;
         private static string _fontFor;
 
@@ -354,9 +300,8 @@ namespace CarturCombatText
                     continue;
                 }
 
-                // Vector3's == is an approximate compare, which is what we want: the values
-                // are bit-identical in single player, and this leaves room if a future game
-                // version ever rounds the position on the way through.
+                // Vector3 == is approximate: bit-identical in single player, slack in case a
+                // future version rounds the position in transit.
                 if (EnemyHits[i].Point == pos)
                 {
                     victim = EnemyHits[i].Victim;
@@ -369,19 +314,21 @@ namespace CarturCombatText
             return false;
         }
 
+        // The only point where the new text and the position it was shown at are both in hand,
+        // so this is where a recorded enemy hit gets matched and tagged.
         [HarmonyPatch(typeof(DamageText), "AddInworldText")]
         private static class TagNewText
         {
             private static bool _warned;
 
-            // Count before, so the postfix can tell a text this call added from an early return.
+            // Count before, so the postfix can tell an added text from an early return.
             private static void Prefix(DamageText __instance, out int __state)
             {
                 __state = (TextsField?.GetValue(__instance) as System.Collections.IList)?.Count ?? -1;
             }
 
-            // A throw here would propagate out of Character.ApplyDamage (the RPC runs inline
-            // inside it) and cancel the hit's damage. The numbers are cosmetic, so swallow it.
+            // A throw here escapes Character.ApplyDamage (the RPC runs inline) and cancels the
+            // hit's damage. The numbers are cosmetic, so swallow it.
             private static void Postfix(DamageText __instance, DamageText.TextType type, Vector3 pos, int __state)
             {
                 try
@@ -399,8 +346,6 @@ namespace CarturCombatText
 
             private static void Tag(DamageText __instance, DamageText.TextType type, Vector3 pos, int countBefore)
             {
-                // Everything that is not a creature - trees, ore, buildings, crafting, pickups,
-                // healing - is left exactly as vanilla drew it.
                 if (!WasEnemyHit(pos, out Character victim, out bool backstab))
                     return;
 
@@ -408,10 +353,9 @@ namespace CarturCombatText
                 if (list == null || list.Count <= countBefore || TextFieldRef == null)
                     return;
 
-                // AddInworldText appends the new instance to m_worldTexts and never reorders,
-                // so the one it just made is the last. It can also early-return without adding
-                // anything when the list is full of "0" texts, hence the count guard above (the
-                // last entry would then be an older, untracked text) and the ContainsKey guard.
+                // AddInworldText appends and never reorders, so the new one is last. It can return
+                // early without adding when the list is full of "0" texts, hence the count and
+                // ContainsKey guards.
                 var text = TextFieldRef(list[list.Count - 1]);
                 if (text == null || Live.ContainsKey(text))
                     return;
@@ -420,32 +364,25 @@ namespace CarturCombatText
                 if (font != null)
                     text.font = font;
 
-                // Weak is the game's own elemental-weakness callout. Bonus is left in even
-                // though nothing currently emits it for a creature hit (see BackstabTimeField
-                // above) - harmless, and it starts working for free if a future game version
-                // ever does route a real Bonus text through here. Backstab is read from the
-                // field the game sets when its own check passes, not guessed from hit size.
+                // Bonus never fires for a creature hit today (see BackstabTimeField); kept in case
+                // a future version routes one through.
                 bool crit = type == DamageText.TextType.Bonus || type == DamageText.TextType.Weak || backstab;
 
-                // Only ordinary hits feed the running average, so healing and block text
-                // cannot drag the "what counts as big" line around.
+                // Only normal hits feed the average, so healing and block text can't move the line.
                 if (type == DamageText.TextType.Normal
                     && float.TryParse(text.text, NumberStyles.Float, CultureInfo.InvariantCulture, out float value)
                     && IsBigHit(value))
                     crit = true;
 
-                // AddInworldText has already written m_worldPos = pos + Random.insideUnitSphere
-                // * 0.5f, so subtracting the position it was handed recovers that spread.
+                // AddInworldText already set m_worldPos = pos + Random.insideUnitSphere * 0.5f;
+                // subtracting pos recovers the spread.
                 Vector3 jitter = Vector3.zero;
                 if (WorldPosRef != null)
                     jitter = WorldPosRef(list[list.Count - 1]) - pos;
 
-                // Recolour on top of vanilla's own type colour (AddInworldText already set it,
-                // above). Weak keeps a colour of its own - red - so an elemental hit still
-                // reads as "elemental" instead of disappearing into the generic crit colour;
-                // every other crit (bonus, backstab, an oversized normal hit) reuses vanilla's
-                // former Weak yellow. Alpha is left alone: UpdateWorldTexts fades it every
-                // frame off whatever is here now.
+                // On top of vanilla's type colour. Weak is painted red so elemental hits still read as
+                // elemental; other crits get vanilla's old Weak yellow. Alpha is left alone,
+                // UpdateWorldTexts fades it.
                 if (type == DamageText.TextType.Weak)
                 {
                     var c = text.color;
@@ -457,17 +394,12 @@ namespace CarturCombatText
                     text.color = new Color(1f, 1f, 0f, c.a);
                 }
 
-                // Bold the crit. This is deliberately a style flag and not a different font
-                // asset: TMP falls back to synthesising the weight when the face has no real
-                // bold, so it works whatever font the prefab is carrying, needs no asset to be
-                // loaded and no material instance - which a per-text outline would have cost in
-                // draw calls. Whether a genuinely different face is available is a runtime
-                // question, so LogFonts below dumps what is actually loaded.
+                // Style flag, not a font swap: TMP synthesises bold when the face has none, so it
+                // works on any font with no extra asset or material instance.
                 if (crit)
                     text.fontStyle |= FontStyles.Bold;
 
-                // Cut a crit's life short so it clears the screen quickly. This also sharpens
-                // vanilla's fade, which is 1 - (m_timer / m_duration)^3.
+                // Also sharpens vanilla's 1 - (m_timer / m_duration)^3 fade.
                 if (crit && DurationRef != null)
                     DurationRef(list[list.Count - 1]) *= CritDurationFactor;
 
@@ -475,13 +407,12 @@ namespace CarturCombatText
             }
         }
 
-        // Vanilla's rise: UpdateWorldTexts does m_worldPos.y += dt, so one metre per second.
-        // Reproduced here because overwriting m_worldPos throws away its accumulation.
+        // UpdateWorldTexts does m_worldPos.y += dt (1 m/s). Reproduced because AnchorToVictim
+        // overwrites m_worldPos.
         private const float RiseSpeed = 1f;
 
-        // Snap out to the peak, overshoot back past normal, settle. Three straight lines rather
-        // than an easing curve on purpose: at 40ms and 120ms the eye reads the sharp corners as
-        // impact, and a smoothed version of the same numbers feels like a balloon inflating.
+        // Three straight lines, not an easing curve: at these speeds the sharp corners read as
+        // impact, a smoothed version feels like a balloon inflating.
         private static float CritCurve(float age)
         {
             if (age < CritScaleTime)
@@ -493,16 +424,11 @@ namespace CarturCombatText
             return 1f;
         }
 
-        // Re-anchor each tracked number onto its creature before vanilla projects it.
-        //
-        // A Prefix rather than a Postfix, and deliberately one that does not return false: it
-        // only writes m_worldPos, then lets the original do the projection, the fade, the
-        // off-screen culling and the cleanup exactly as it always did. Re-implementing
-        // Utils.WorldToScreenPointScaled here would be a second copy of code that already works.
-        //
-        // The anchor is Character.GetTopPoint(), which is the same point EnemyHud.UpdateHuds
-        // uses for the healthbar, so the number starts on the bar and rides up off it. It also
-        // means the text follows the creature instead of hanging where the blow landed.
+        // Re-anchor each number onto its creature before vanilla projects it. A Prefix that never
+        // returns false: it only writes m_worldPos and vanilla still does the projection, fade,
+        // culling and cleanup. Re-implementing Utils.WorldToScreenPointScaled here would be a
+        // second copy of code that already works. GetTopPoint() is the point EnemyHud uses for the healthbar, so the number starts on the
+        // bar and follows the creature.
         [HarmonyPatch(typeof(DamageText), "UpdateWorldTexts")]
         private static class AnchorToVictim
         {
@@ -528,6 +454,8 @@ namespace CarturCombatText
             }
         }
 
+        // Vanilla sets the size once in AddInworldText. This re-applies the scaled size every
+        // frame so the crit curve can animate.
         [HarmonyPatch(typeof(DamageText), "UpdateWorldTexts")]
         private static class ScaleTexts
         {
@@ -537,8 +465,8 @@ namespace CarturCombatText
                 if (list == null || TextFieldRef == null || TimerRef == null)
                     return;
 
-                // UpdateWorldTexts destroys at most one expired text per frame, so entries
-                // leak into Live unless they are swept out as their objects die.
+                // UpdateWorldTexts destroys at most one expired text a frame, so sweep dead keys
+                // out of Live.
                 Dead.Clear();
                 foreach (var kv in Live)
                     if (kv.Key == null)
