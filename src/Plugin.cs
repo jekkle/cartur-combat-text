@@ -44,8 +44,8 @@ namespace CarturCombatText
         public const float SizeScale = 2f;
         public const float CritSizeScale = 3f;
 
-        // Peak size is the owner's 1.1.1 one (WoW measures ~2.1x). Timing is WoW's, measured at
-        // 60fps: peak within one frame, straight back to 1x by ~0.14s, no undershoot.
+        // Peak is the 1.1.1 size, WoW measures ~2.1x. Timing is WoW's at 60fps: peak within one
+        // frame, straight back to 1x by ~0.14s, no undershoot.
         private const float CritPeakScale = 3.5f;
         private const float CritScaleTime = 0.017f;   // 0 -> peak
         private const float CritShrinkTime = 0.14f;   // peak -> 1x
@@ -286,7 +286,7 @@ namespace CarturCombatText
                 {
                     _font = TMP_FontAsset.CreateFontAsset(path, 0, 90, 9,
                         UnityEngine.TextCore.LowLevel.GlyphRenderMode.SDFAA, 1024, 1024);
-                    // A font asset made from a file has no name, which left the log line blank.
+                    // assets made from a file have no name
                     if (_font != null)
                         _font.name = System.IO.Path.GetFileNameWithoutExtension(want);
                 }
@@ -438,7 +438,6 @@ namespace CarturCombatText
                 if (WorldPosRef != null)
                     jitter = WorldPosRef(list[list.Count - 1]) - pos;
 
-                // Colour stays vanilla's. A WoW crit is only bigger: same colour, same weight.
                 if (!crit && DurationRef != null)
                     DurationRef(list[list.Count - 1]) *= NormalDurationFactor;
 
@@ -498,7 +497,6 @@ namespace CarturCombatText
                     if (!Live.TryGetValue(text, out Tracked t) || t.Victim == null)
                         continue;
 
-                    // Crits stay put on the creature; normal hits arc off to one side.
                     Vector3 anchor = t.Victim.GetTopPoint() + t.Jitter;
                     WorldPosRef(item) = t.Crit ? anchor : anchor + Fling(cam, anchor, TimerRef(item), t.Side);
                 }
