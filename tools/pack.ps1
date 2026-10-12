@@ -5,7 +5,7 @@
 # Thunderstore wants manifest.json, icon.png and README.md at the zip root, so the
 # package/ folder is zipped by its contents, not as a folder.
 #
-# Pure code mod - no assets folder needed beside the DLL.
+# The default font and its licence ship in fonts/ beside the DLL.
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
@@ -30,6 +30,7 @@ $modDir = Join-Path $pkg "plugins\CarturCombatText"
 if (Test-Path (Join-Path $pkg "plugins")) { Remove-Item (Join-Path $pkg "plugins") -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $modDir | Out-Null
 Copy-Item (Join-Path $root "src\bin\Release\net472\CarturCombatText.dll") $modDir -Force
+Copy-Item (Join-Path $root "src\fonts") $modDir -Recurse -Force
 
 New-Item -ItemType Directory -Force -Path $dist | Out-Null
 $zip = Join-Path $dist "$($manifest.name)-$version.zip"

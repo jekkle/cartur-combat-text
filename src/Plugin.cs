@@ -15,8 +15,9 @@ namespace CarturCombatText
     // per text and re-applies a scaled one each frame. No patch returns false, so if a game update
     // moves any of this the numbers just go back to vanilla.
     //
-    // Crit pop starts from WoW's Blizzard_CombatText.lua: COMBAT_TEXT_CRIT_MINHEIGHT 30 ->
-    // CRIT_MAXHEIGHT 60 (2x) in CRIT_SCALE_TIME 0.05s, back down by CRIT_SHRINKTIME 0.2s.
+    // Motion and crit pop copy retail WoW's numbers over enemies. Those are engine code with no
+    // Lua source (Blizzard_CombatText.lua only animates text around your own character), so every
+    // number below was measured frame by frame from 60fps 1080p footage, YouTube yaGsWWZptIc 56-70s.
     //
     // Enemies only. By the time AddInworldText runs the hit has been through a ZPackage and only
     // a TextType, a position and a string survive; trees, ore, buildings, crafting and pickups
@@ -36,25 +37,29 @@ namespace CarturCombatText
     {
         public const string PluginGuid = "com.jekkle.valheim.carturcombattext";
         public const string PluginName = "Cartur's Combat Text";
-        public const string PluginVersion = "1.1.1";
+        public const string PluginVersion = "1.2.0";
 
         // Multiplies vanilla's own size so its distance falloff survives. Taste: normals at 3x
         // crowded the screen on fast weapons, crits keep 3x so they still stand out.
         public const float SizeScale = 2f;
         public const float CritSizeScale = 3f;
 
-        // Louder and faster than WoW's pop: snap to a bigger peak, undershoot, settle. The
-        // undershoot is what reads as a pop rather than a swell. All taste.
+        // Peak size is the owner's 1.1.1 one (WoW measures ~2.1x). Timing is WoW's, measured at
+        // 60fps: peak within one frame, straight back to 1x by ~0.14s, no undershoot.
         private const float CritPeakScale = 3.5f;
-        private const float CritScaleTime = 0.04f;    // 0 -> peak
-        private const float CritShrinkTime = 0.16f;   // peak -> undershoot
-        private const float CritSettleScale = 0.9f;   // the undershoot
-        private const float CritSettleTime = 0.24f;   // undershoot -> normal
+        private const float CritScaleTime = 0.017f;   // 0 -> peak
+        private const float CritShrinkTime = 0.14f;   // peak -> 1x
 
-        // Crits climb faster and die sooner. A shorter m_duration also sharpens vanilla's
-        // 1 - t^3 fade.
-        private const float CritRiseSpeed = 2.5f;
-        private const float CritDurationFactor = 0.6f;
+        // Crits do not move against their nameplate and fade at ~1.35s, which vanilla's 1.5s
+        // m_duration with its 1 - t^3 fade already does. Normal hits fling sideways and are gone by
+        // ~0.5s: 0.45 * 1.5s keeps them mostly opaque that long.
+        private const float NormalDurationFactor = 0.45f;
+
+        // Normal hits, in screen heights so the arc looks the same at any distance: sideways at
+        // 440-640 px/s, rising 100-240 px/s at first and levelling off by ~0.25s (1080p).
+        private const float FlingSpeed = 0.45f;
+        private const float FlingRise = 0.17f;
+        private const float FlingGravity = 0.6f;
 
         // Metres. Vanilla's limit hid bow hits at range. Taste; vanilla's own value is a prefab
         // field, logged on load.
@@ -72,11 +77,11 @@ namespace CarturCombatText
         private void Awake()
         {
             Log = Logger;
-            FontName = Config.Bind("General", "Font", "",
+            FontName = Config.Bind("General", "Font", "Federo-Regular.ttf",
                 "Font for the numbers on enemies. Empty uses the game's own. Either the name of a font the game has loaded " +
                 "(the list is written to the BepInEx log when you enter a world, e.g. Valheim-Norse), or the file name of a " +
-                ".ttf/.otf you put in a 'fonts' folder next to this mod's DLL (e.g. Diablo.ttf). Takes effect on the next hit. " +
-                "A custom font gets TMP's default material, so it does not have vanilla's outline.");
+                ".ttf/.otf in the 'fonts' folder next to this mod's DLL (e.g. Diablo.ttf). Takes effect on the next hit. " +
+                "The default, Federo (SIL Open Font License, see fonts/OFL.txt), is the closest free match to WoW's Friz Quadrata.");
             try
             {
                 Harmony.CreateAndPatchAll(typeof(Plugin).Assembly, PluginGuid);
@@ -121,6 +126,8 @@ namespace CarturCombatText
             public Character Victim;
             // Vanilla's insideUnitSphere * 0.5f spread, so repeat hits don't stack on one point.
             public Vector3 Jitter;
+            // -1 or 1. The footage flings both ways and WoW's rule for which is not readable.
+            public float Side;
         }
 
         // Keyed on TMP_Text: the one object both patches can see, and it dies with its text.
@@ -259,7 +266,7 @@ namespace CarturCombatText
         private static TMP_FontAsset _font;
         private static string _fontFor;
 
-        private static TMP_FontAsset CustomFont()
+        private static TMP_FontAsset CustomFont(Material vanilla, TMP_FontAsset vanillaFont)
         {
             string want = FontName?.Value?.Trim() ?? "";
             if (want == _fontFor)
@@ -272,8 +279,38 @@ namespace CarturCombatText
             string path = System.IO.Path.Combine(
                 System.IO.Path.GetDirectoryName(typeof(Plugin).Assembly.Location) ?? "", "fonts", want);
             if (System.IO.File.Exists(path))
-                _font = TMP_FontAsset.CreateFontAsset(path, 0, 90, 9,
-                    UnityEngine.TextCore.LowLevel.GlyphRenderMode.SDFAA, 1024, 1024);
+            {
+                // CreateFontAsset builds its material from Shader.Find("TextMeshPro/Mobile/Distance
+                // Field") (read from Unity.TextMeshPro), which a build can strip.
+                try
+                {
+                    _font = TMP_FontAsset.CreateFontAsset(path, 0, 90, 9,
+                        UnityEngine.TextCore.LowLevel.GlyphRenderMode.SDFAA, 1024, 1024);
+                    // A font asset made from a file has no name, which left the log line blank.
+                    if (_font != null)
+                        _font.name = System.IO.Path.GetFileNameWithoutExtension(want);
+                }
+                catch (Exception e)
+                {
+                    Log?.LogWarning($"Font file {path} failed to load: {e.Message}");
+                }
+
+                // A text takes its font's material, and TMP's default one has no outline. Vanilla's
+                // material pointed at the new atlas keeps the game's outline. The atlas numbers have
+                // to come from the new font's own material or the edges smear.
+                if (_font != null && vanilla != null)
+                {
+                    var own = _font.material;
+                    var m = new Material(vanilla);
+                    m.SetTexture(ShaderUtilities.ID_MainTex, _font.atlasTexture);
+                    m.SetFloat(ShaderUtilities.ID_TextureWidth, own.GetFloat(ShaderUtilities.ID_TextureWidth));
+                    m.SetFloat(ShaderUtilities.ID_TextureHeight, own.GetFloat(ShaderUtilities.ID_TextureHeight));
+                    m.SetFloat(ShaderUtilities.ID_GradientScale, own.GetFloat(ShaderUtilities.ID_GradientScale));
+                    ShaderUtilities.UpdateShaderRatios(m);
+                    _font.material = m;
+                    Log?.LogInfo($"Combat text font uses vanilla's shader {vanilla.shader?.name}");
+                }
+            }
             else
                 foreach (var fa in Resources.FindObjectsOfTypeAll<TMP_FontAsset>())
                     if (fa != null && fa.name == want) { _font = fa; break; }
@@ -283,8 +320,26 @@ namespace CarturCombatText
                     ? $"Font file {path} could not be loaded. Using the game's font."
                     : $"Font '{want}' not found - not a loaded font name and no file at {path}. Using the game's font.");
             else
-                Log?.LogInfo($"Combat text font: {_font.name}");
+            {
+                _fontScale = DigitHeight(vanillaFont) is float v && DigitHeight(_font) is float c && v > 0f && c > 0f ? v / c : 1f;
+                Log?.LogInfo($"Combat text font: {_font.name}, sized x{_fontScale:F2} so its digits stand as tall as {vanillaFont?.name}'s");
+            }
             return _font;
+        }
+
+        // Same fontSize, different face, different digit height. Scaled so a swapped font keeps
+        // vanilla's digit height and the sizes stay what they were before the swap.
+        private static float _fontScale = 1f;
+
+        // Height of '8' per point of font size, from the asset's own glyph metrics.
+        private static float DigitHeight(TMP_FontAsset f)
+        {
+            if (f == null)
+                return 0f;
+            f.TryAddCharacters("8");
+            return f.characterLookupTable.TryGetValue('8', out TMP_Character ch) && ch.glyph != null && f.faceInfo.pointSize > 0f
+                ? ch.glyph.metrics.height / f.faceInfo.pointSize * f.faceInfo.scale
+                : 0f;
         }
 
         private static bool WasEnemyHit(Vector3 pos, out Character victim, out bool backstab)
@@ -360,9 +415,12 @@ namespace CarturCombatText
                 if (text == null || Live.ContainsKey(text))
                     return;
 
-                TMP_FontAsset font = CustomFont();
+                TMP_FontAsset font = CustomFont(text.fontSharedMaterial, text.font);
                 if (font != null)
+                {
                     text.font = font;
+                    text.fontSize *= _fontScale;
+                }
 
                 // Bonus never fires for a creature hit today (see BackstabTimeField); kept in case
                 // a future version routes one through.
@@ -380,48 +438,40 @@ namespace CarturCombatText
                 if (WorldPosRef != null)
                     jitter = WorldPosRef(list[list.Count - 1]) - pos;
 
-                // On top of vanilla's type colour. Weak is painted red so elemental hits still read as
-                // elemental; other crits get vanilla's old Weak yellow. Alpha is left alone,
-                // UpdateWorldTexts fades it.
-                if (type == DamageText.TextType.Weak)
+                // Colour stays vanilla's. A WoW crit is only bigger: same colour, same weight.
+                if (!crit && DurationRef != null)
+                    DurationRef(list[list.Count - 1]) *= NormalDurationFactor;
+
+                Live[text] = new Tracked
                 {
-                    var c = text.color;
-                    text.color = new Color(1f, 0f, 0f, c.a);
-                }
-                else if (crit)
-                {
-                    var c = text.color;
-                    text.color = new Color(1f, 1f, 0f, c.a);
-                }
-
-                // Style flag, not a font swap: TMP synthesises bold when the face has none, so it
-                // works on any font with no extra asset or material instance.
-                if (crit)
-                    text.fontStyle |= FontStyles.Bold;
-
-                // Also sharpens vanilla's 1 - (m_timer / m_duration)^3 fade.
-                if (crit && DurationRef != null)
-                    DurationRef(list[list.Count - 1]) *= CritDurationFactor;
-
-                Live[text] = new Tracked { BaseSize = text.fontSize, Crit = crit, Victim = victim, Jitter = jitter };
+                    BaseSize = text.fontSize, Crit = crit, Victim = victim, Jitter = jitter,
+                    Side = UnityEngine.Random.value < 0.5f ? -1f : 1f
+                };
             }
         }
 
-        // UpdateWorldTexts does m_worldPos.y += dt (1 m/s). Reproduced because AnchorToVictim
-        // overwrites m_worldPos.
-        private const float RiseSpeed = 1f;
-
-        // Three straight lines, not an easing curve: at these speeds the sharp corners read as
-        // impact, a smoothed version feels like a balloon inflating.
+        // Two straight lines: the measured shrink is close to linear.
         private static float CritCurve(float age)
         {
             if (age < CritScaleTime)
                 return Mathf.Lerp(1f, CritPeakScale, age / CritScaleTime);
             if (age < CritShrinkTime)
-                return Mathf.Lerp(CritPeakScale, CritSettleScale, (age - CritScaleTime) / (CritShrinkTime - CritScaleTime));
-            if (age < CritSettleTime)
-                return Mathf.Lerp(CritSettleScale, 1f, (age - CritShrinkTime) / (CritSettleTime - CritShrinkTime));
+                return Mathf.Lerp(CritPeakScale, 1f, (age - CritScaleTime) / (CritShrinkTime - CritScaleTime));
             return 1f;
+        }
+
+        // The fling is measured in screen heights, so turn it into metres at the text's depth:
+        // a screen height spans 2 * depth * tan(fov / 2) there. Camera.main is the camera vanilla
+        // projects with (Utils.GetMainCamera returns it).
+        private static Vector3 Fling(Camera cam, Vector3 anchor, float age, float side)
+        {
+            float depth = Vector3.Dot(anchor - cam.transform.position, cam.transform.forward);
+            if (depth <= 0f)
+                return Vector3.zero;
+            float metres = 2f * depth * Mathf.Tan(cam.fieldOfView * 0.5f * Mathf.Deg2Rad);
+            float x = side * FlingSpeed * age;
+            float y = FlingRise * age - 0.5f * FlingGravity * age * age;
+            return (cam.transform.right * x + cam.transform.up * y) * metres;
         }
 
         // Re-anchor each number onto its creature before vanilla projects it. A Prefix that never
@@ -435,7 +485,8 @@ namespace CarturCombatText
             private static void Prefix(DamageText __instance)
             {
                 var list = TextsField?.GetValue(__instance) as System.Collections.IList;
-                if (list == null || TextFieldRef == null || TimerRef == null || WorldPosRef == null)
+                Camera cam = Camera.main;
+                if (list == null || cam == null || TextFieldRef == null || TimerRef == null || WorldPosRef == null)
                     return;
 
                 for (int i = 0; i < list.Count; i++)
@@ -447,9 +498,9 @@ namespace CarturCombatText
                     if (!Live.TryGetValue(text, out Tracked t) || t.Victim == null)
                         continue;
 
-                    float age = TimerRef(item);
-                    float rise = t.Crit ? CritRiseSpeed : RiseSpeed;
-                    WorldPosRef(item) = t.Victim.GetTopPoint() + t.Jitter + Vector3.up * (age * rise);
+                    // Crits stay put on the creature; normal hits arc off to one side.
+                    Vector3 anchor = t.Victim.GetTopPoint() + t.Jitter;
+                    WorldPosRef(item) = t.Crit ? anchor : anchor + Fling(cam, anchor, TimerRef(item), t.Side);
                 }
             }
         }

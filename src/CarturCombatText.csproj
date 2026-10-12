@@ -57,6 +57,11 @@
     </ItemGroup>
     <MakeDir Directories="$(R2MODMAN_PROFILE)\BepInEx\plugins\CarturCombatText" />
     <Copy SourceFiles="@(DeployFiles)" DestinationFolder="$(R2MODMAN_PROFILE)\BepInEx\plugins\CarturCombatText" />
+    <Copy SourceFiles="@(FontFiles)" DestinationFolder="$(R2MODMAN_PROFILE)\BepInEx\plugins\CarturCombatText\fonts" />
   </Target>
+
+  <ItemGroup>
+    <FontFiles Include="fonts\*" />
+  </ItemGroup>
 
 </Project>

@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.2.0
+
+- **Retail WoW motion**, measured frame by frame from 60fps WoW footage. Ordinary hits fling off
+  to one side in a short arc and fade in about half a second. Crits stay on the creature for about
+  1.5s.
+- Crit pop now shrinks straight back to size by ~0.14s, with no undershoot.
+- No more recolouring: crits keep the game's colours and are no longer bold.
+- New default font, Federo (SIL Open Font License), the closest free match to WoW's damage font.
+  An existing config keeps whatever `Font` it already has; set it to `Federo-Regular.ttf` to switch.
+- A font loaded from a file now keeps the game's outline and vanilla's digit height.
+
 ## 1.1.1
 
 - An error while drawing a damage number can no longer cancel the hit's damage.

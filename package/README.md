@@ -1,33 +1,32 @@
 # Cartur's Combat Text
 
-World of Warcraft style combat text for Valheim - bigger numbers on enemies, and a
-fast crit pop instead of a flat vanilla rise. Numbers on trees, ore, buildings,
-crafting and pickups are untouched - this only changes what you see over a
-creature you just hit.
+World of Warcraft style combat text for Valheim, timed against retail WoW footage frame
+by frame. Numbers on trees, ore, buildings, crafting and pickups are untouched - this
+only changes what you see over a creature you just hit.
 
-![A weak-elemental hit in red, next to the normal white hit number](https://raw.githubusercontent.com/jekkle/cartur-combat-text/master/docs/images/combat-text-hit.png)
-
-- Enemy hit numbers are 2x vanilla size. A crit is 3x, with a snap-to-peak,
-  undershoot, settle pop rather than a smooth swell.
-- **Red** text for an elemental weakness hit. **Yellow** for everything else that
-  counts as a crit: a backstab, a Valheim "Bonus" hit, or a hit at least twice the
-  size of your recent average against that kind of enemy. Crits are also bold and
-  clear the screen faster.
-- The number rides up from the creature as it moves, instead of hanging in the air
-  where the blow landed.
+- Ordinary hits fling off to one side in a short arc and are gone in about half a
+  second, like retail WoW.
+- Crits pop: they snap to a big peak and are back to size within about 0.14s, then sit
+  on the creature for about a second and a half. A crit is a backstab, a stagger, an
+  elemental weakness hit, or a hit at least twice your recent average against that
+  kind of enemy.
+- Enemy hit numbers are 2x vanilla size, crits 3x.
+- Colours are the game's own.
+- Numbers are drawn in Federo, the closest free match to WoW's damage font. Set
+  `General / Font` to empty for the game's font, or to any loaded font name or a
+  .ttf/.otf in the mod's `fonts` folder.
 - Readable from further away - raised from vanilla's own text-visibility distance
   so a bow shot from range still shows a number.
 
-Everything else - the font, the fade, the rise speed on an ordinary hit, healing
-and block text - is exactly what vanilla already drew.
+Healing and block text are exactly what vanilla already drew.
 
 ## Install
 
 Use a mod manager (r2modman / Thunderstore / Gale) and it pulls in BepInEx for you.
-Manually: drop `CarturCombatText.dll` into `BepInEx/plugins`.
+Manually: drop the `CarturCombatText` folder (the DLL and its `fonts` folder) into `BepInEx/plugins`.
 
 Client-side. The server doesn't need it and neither do the people you play with.
-No settings to configure - it just changes the numbers.
+Federo is under the SIL Open Font License (`fonts/OFL.txt`).
 
 ---
 
