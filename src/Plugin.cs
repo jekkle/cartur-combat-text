@@ -37,7 +37,7 @@ namespace CarturCombatText
     {
         public const string PluginGuid = "com.jekkle.valheim.carturcombattext";
         public const string PluginName = "Cartur's Combat Text";
-        public const string PluginVersion = "1.2.0";
+        public const string PluginVersion = "1.2.1";
 
         // Multiplies vanilla's own size so its distance falloff survives. Taste: normals at 3x
         // crowded the screen on fast weapons, crits keep 3x so they still stand out.

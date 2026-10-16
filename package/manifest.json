@@ -1,6 +1,6 @@
 {
   "name": "Carturs_Combat_Text",
-  "version_number": "1.2.0",
+  "version_number": "1.2.1",
   "website_url": "https://github.com/jekkle/cartur-combat-text",
   "description": "WoW-style floating combat text on enemies: retail fling on ordinary hits, a fast crit pop on backstabs, staggers, weak spots and outsized hits, in a Friz-like font.",
   "dependencies": [

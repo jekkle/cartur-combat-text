@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.1
+
+- New icon, and the README is rewritten: a fuller description of what the mod does, every setting and default checked against the code, and image captions that match the pictures. No code changes.
+
 ## 1.2.0
 
 - **Retail WoW motion**, measured frame by frame from 60fps WoW footage. Ordinary hits fling off
