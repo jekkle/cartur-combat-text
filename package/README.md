@@ -2,6 +2,8 @@
 
 World of Warcraft style combat text for Valheim. The motion was timed against retail WoW footage, frame by frame, and it only changes the numbers you see over an enemy you just hit.
 
+![Damage numbers popping off a greydwarf](https://raw.githubusercontent.com/jekkle/cartur-combat-text/master/docs/images/ingame-combat.jpg)
+
 ## What it does
 
 Ordinary hits fling off to one side in a short arc and are gone in about half a second, as in retail WoW. Crits pop. They snap to a big peak and are back to size within about 0.14 seconds, then sit on the creature for around a second and a half. Enemy hit numbers are drawn at 2x vanilla size and crits at 3x. Colours are the game's own.
