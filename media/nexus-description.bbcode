@@ -1,23 +1,39 @@
-[size=4][b]World of Warcraft style combat text - bigger numbers on enemies, with a fast crit pop instead of a flat vanilla rise.[/b][/size]
+World of Warcraft style combat text for Valheim. The motion was timed against retail WoW footage, frame by frame, and it only changes the numbers you see over an enemy you just hit.
+
+[img]https://raw.githubusercontent.com/jekkle/cartur-combat-text/master/docs/images/ingame-combat.jpg[/img]
+
+[size=5][b]What it does[/b][/size]
+
+Ordinary hits fling off to one side in a short arc and are gone in about half a second, as in retail WoW. Crits pop. They snap to a big peak and are back to size within about 0.14 seconds, then sit on the creature for around a second and a half. Enemy hit numbers are drawn at 2x vanilla size and crits at 3x. Colours are the game's own.
+
+A hit counts as a crit in four cases: a backstab, a stagger hit, a hit that triggers the game's weakness text (a creature taking extra damage from that damage type), or a hit at least twice the average of your last 20 normal hits. The average needs at least five hits before it starts counting, so the first swings of a session are not all crits. It is one running average across every enemy, not one per creature type.
+
+Numbers are drawn in Federo, the closest free match to WoW's damage font. Federo is under the SIL Open Font License (fonts/OFL.txt). Hit numbers on enemies are also readable from further away. The mod raises the game's text-visibility distance to 80 metres for an enemy hit, so a bow shot from range still shows a number. The raise applies only to that one hit, so distant chopping, mining and other players' numbers are not pulled in.
+
+Only hits on enemies are changed. Numbers on trees, ore, buildings, crafting and pickups, and over the player or tamed creatures, are left as vanilla draws them.
+
+[size=5][b]Settings[/b][/size]
+
+Config file: BepInEx/config/com.jekkle.valheim.carturcombattext.cfg.
 
 [list]
-[*]Enemy hit numbers are 2x vanilla size. A crit is 3x, with a snap-to-peak, undershoot, settle pop rather than a smooth swell.[/*]
-[*][b]Red[/b] text for an elemental weakness hit. [b]Yellow[/b] for everything else that counts as a crit: a backstab, a Valheim "Bonus" hit, or a hit at least twice the size of your recent average against that kind of enemy. Crits are also bold and clear the screen faster.[/*]
-[*]The number rides up from the creature as it moves, instead of hanging in the air where the blow landed.[/*]
-[*]Readable from further away - raised from vanilla's own text-visibility distance so a bow shot from range still shows a number.[/*]
+[*][b]General / Font[/b] (Federo-Regular.ttf) - Font for the numbers on enemies. Empty uses the game's own. Otherwise either the name of a font the game has loaded, or the file name of a .ttf or .otf in the fonts folder next to the DLL. Takes effect on the next hit.[/*]
 [/list]
 
-Everything else - the font, the fade, the rise speed on an ordinary hit, healing and block text - is exactly what vanilla already drew.
+The names of the game's loaded fonts, for example Valheim-Norse, are written to the BepInEx log when you enter a world. A config from before 1.2.0 keeps whatever Font it already had. Set it to Federo-Regular.ttf to switch. If a font file cannot be loaded, a warning is written to the log.
 
-[size=4][b]Installation[/b][/size]
+[size=5][b]Install[/b][/size]
 
-Requires BepInEx. Unpack into your Valheim folder so the DLL lands in BepInEx/plugins. No settings to configure.
+Use a mod manager (r2modman, Thunderstore or Gale) and it pulls in BepInEx for you. To install by hand, drop the CarturCombatText folder, which holds the DLL and its fonts folder, into BepInEx/plugins.
 
-Single-player and multiplayer, client-side only. The server does not need it, and other players do not need it.
+Client-side. The server does not need it and neither do the people you play with.
 
-[size=4][b]More from Cartur[/b][/size]
+[size=5][b]Discord[/b][/size]
+[url=https://discord.gg/nd5RqpwNkz]Cartur's Mods Discord[/url] - bug reports, install help, and mod requests. Bug reports get their own thread so nothing is lost, and requests are voted on.
 
-[url=https://www.nexusmods.com/valheim/mods/3679]HD Blood[/url] - higher resolution ground blood and a real burst on every hit.
+[size=5][b]More from Cartur[/b][/size]
+
+[url=https://www.nexusmods.com/valheim/mods/3679]HD Blood[/url] - higher resolution ground blood, and a real burst of blood on every hit and kill.
 [url=https://www.nexusmods.com/valheim/mods/3681]Map Pins[/url] - pins the world onto your map as you explore it.
 [url=https://www.nexusmods.com/valheim/mods/3684]Compass and Clock[/url] - a compass bar across the top of the screen.
 [url=https://www.nexusmods.com/valheim/mods/3685]Safe Stamina[/url] - stamina costs nothing while no enemy is near.
@@ -25,9 +41,9 @@ Single-player and multiplayer, client-side only. The server does not need it, an
 [url=https://www.nexusmods.com/valheim/mods/3760]Flooring[/url] - floors keep the rain off, and fires sit on them.
 [url=https://www.nexusmods.com/valheim/mods/3779]UI - HUD[/url] - a hand-drawn bronze HUD you can arrange in game.
 [url=https://www.nexusmods.com/valheim/mods/3888]Waste Management[/url] - a trash can and a sort button in the inventory.
-[url=https://www.nexusmods.com/valheim/mods/4010]Feeding Trough[/url] - a buildable trough your animals eat out of.
-[url=https://www.nexusmods.com/valheim/mods/4055]Build Camera[/url] - a free camera for lining up your builds.
+[url=https://www.nexusmods.com/valheim/mods/4010]Feeding Trough[/url] - a trough your animals eat out of.
+[url=https://www.nexusmods.com/valheim/mods/4389]Farming[/url] - faster crops, bigger harvests, and whole fields planted at once.
+[url=https://www.nexusmods.com/valheim/mods/4390]Mining[/url] - harder pickaxe hits, more ore, and deposits that shatter.
+[url=https://www.nexusmods.com/valheim/mods/4391]Sailing[/url] - a Sailing skill: faster ships, tougher hulls, a wider map reveal.
 
 Free, and always will be - if it improved your game you can [url=https://www.patreon.com/c/cartur]tip me on Patreon[/url].
-
-[url=https://discord.gg/nd5RqpwNkz]Discord[/url] - bug reports, install help, and mod requests. Bug reports get their own thread so nothing is lost in a chat scroll, and requests are voted on.
